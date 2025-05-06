@@ -24,3 +24,16 @@ def open_file():
         lyrics = load_lyrics(file_path)
         lyrics_label.config(text=lyrics)
 
+root = tk.Tk()
+root.title("DubzMusicPlayer")
+
+lyrics_label = tk.Label(root, text="Lyrics will appear here.", justify="left", width=50, height=10)
+lyrics_label.pack()
+
+open_button = tk.Button(root, text="Open Song", command=open_file)
+open_button.pack()
+
+stop_button = tk.Button(root, text="Stop Music", command=stop_music)
+stop_button.pack()
+
+root.mainloop()

@@ -8,3 +8,12 @@ def play_song(file_path):
 
 def stop_song():
     pygame.mixer.music.stop()
+
+def pause_song():
+    pygame.mixer.music.pause()
+
+def resume_song():
+    pygame.mixer.music.unpause()
+
+def set_volume(volume):
+    pygame.mixer.music.set_volume(volume)

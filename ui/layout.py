@@ -1,15 +1,24 @@
 import tkinter as tk
 from tkinter import filedialog
 from utils.audio_utils import play_song, stop_song
-from utils.lyrics_fetcher import get_lyrics
+from utils.lyrics_fetcher import get_lyrics, fetch_lyrics_from_genius
+import eyed3
 
 def launch_ui():
     def open_file():
         file_path = filedialog.askopenfilename(filetypes=[("MP3 Files", "*.mp3")])
         if file_path:
             play_song(file_path)
+
             lyrics = get_lyrics(file_path)
+
+            if lyrics == "No embedded lyrics found.":
+                audio = eyed3.load(file_path)
+                song_title = audio.tag.title if audio.tag.title else "Unknown Title"
+                artist_name = audio.tag.artist if audio.tag.artist else "Unknown Artist"
+                lyrics = fetch_lyrics_from_genius(song_title, artist_name)
             lyrics_label.config(text=lyrics)
+
 
     root = tk.Tk()
     root.title("Dubz Music Player")

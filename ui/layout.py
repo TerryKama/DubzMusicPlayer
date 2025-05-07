@@ -173,7 +173,18 @@ def launch_ui():
                 playlist_box.insert(tk.END, os.path.basename(file))
 
     search_var.trace_add("write", filter_playlist)
-    tk.Entry(root, textvariable=search_var, width=50).pack(pady=5)
+    search_frame = tk.Frame(root)
+    search_frame.pack(pady=5)
+
+    search_entry = tk.Entry(search_frame, textvariable=search_var, width=45)
+    search_entry.pack(side="left", padx=(0, 5))
+
+    def clear_search():
+        search_var.set("")
+        search_entry.focus()
+
+    tk.Button(search_frame, text="×", width=2, command=clear_search).pack(side="left")
+
 
 
     playlist_box = tk.Listbox(root, width=60, height=5)

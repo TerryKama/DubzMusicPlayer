@@ -7,6 +7,7 @@ import pygame
 import time
 import random
 from PIL import Image, ImageTk
+import os
 
 def format_time(seconds):
     minutes = int(seconds // 60)
@@ -14,8 +15,11 @@ def format_time(seconds):
     return f"{minutes:02d}:{secs:02d}"
 
 def launch_ui():
+    original_playlist = []
+    shuffle_enabled = [False]
+    repeat_enabled = [False]
     playlist = []
-    current_index = [0]  # use list to make it mutable in nested functions
+    current_index = [0]
     total_length = 0
     start_time = None
 
@@ -23,7 +27,8 @@ def launch_ui():
         files = filedialog.askopenfilenames(filetypes=[("MP3 Files", "*.mp3")])
         for file in files:
             playlist.append(file)
-            playlist_box.insert(tk.END, file.split("/")[-1] if "/" in file else file.split("\\")[-1])
+            original_playlist.append(file)
+            playlist_box.insert(tk.END, os.path.basename(file))
 
     def play_selected():
         idx = playlist_box.curselection()
@@ -38,19 +43,43 @@ def launch_ui():
         file_path = playlist[index]
         play_song(file_path)
         start_time = time.time()
-        total_length = pygame.mixer.Sound(file_path).get_length()
+        try:
+            total_length = pygame.mixer.Sound(file_path).get_length()
+        except:
+            total_length = 0
         total_time_label.config(text=format_time(total_length))
         update_progress()
         show_lyrics(file_path)
+        show_album_art(file_path)
 
     def show_lyrics(file_path):
         lyrics = get_lyrics(file_path)
         if lyrics == "No embedded lyrics found.":
-            audio = eyed3.load(file_path)
-            song_title = audio.tag.title if audio.tag and audio.tag.title else "Unknown Title"
-            artist_name = audio.tag.artist if audio.tag and audio.tag.artist else "Unknown Artist"
-            lyrics = fetch_lyrics_from_genius(song_title, artist_name)
+            try:
+                audio = eyed3.load(file_path)
+                song_title = audio.tag.title if audio.tag and audio.tag.title else "Unknown Title"
+                artist_name = audio.tag.artist if audio.tag and audio.tag.artist else "Unknown Artist"
+                lyrics = fetch_lyrics_from_genius(song_title, artist_name)
+            except:
+                lyrics = "Lyrics not found."
         lyrics_label.config(text=lyrics)
+
+    def show_album_art(file_path):
+        try:
+            audio = eyed3.load(file_path)
+            if audio.tag and audio.tag.images:
+                image_data = audio.tag.images[0].image_data
+                with open("temp_album.jpg", "wb") as img_file:
+                    img_file.write(image_data)
+                img = Image.open("temp_album.jpg")
+                img = img.resize((150, 150))
+                album_img = ImageTk.PhotoImage(img)
+                album_art_label.config(image=album_img)
+                album_art_label.image = album_img
+            else:
+                album_art_label.config(image="", text="No Album Art")
+        except:
+            album_art_label.config(image="", text="No Album Art")
 
     def next_song():
         if current_index[0] + 1 < len(playlist):
@@ -66,32 +95,96 @@ def launch_ui():
         if pygame.mixer.music.get_busy():
             elapsed = time.time() - start_time
             current_time_label.config(text=format_time(elapsed))
-            progress_percent = (elapsed / total_length) * 100
+            progress_percent = (elapsed / total_length) * 100 if total_length else 0
             progress_bar['value'] = min(progress_percent, 100)
             root.after(1000, update_progress)
         else:
             current_time_label.config(text="00:00")
             progress_bar['value'] = 0
-            if current_index[0] + 1 < len(playlist):
+            if repeat_enabled[0]:
+                load_and_play(current_index[0])
+            elif current_index[0] + 1 < len(playlist):
                 next_song()
 
     def change_volume(val):
         volume = float(val) / 100
         set_volume(volume)
 
+    def toggle_shuffle():
+        shuffle_enabled[0] = not shuffle_enabled[0]
+        if shuffle_enabled[0]:
+            random.shuffle(playlist)
+            shuffle_btn.config(text="Shuffle: ON")
+        else:
+            playlist.clear()
+            playlist.extend(original_playlist)
+            shuffle_btn.config(text="Shuffle: OFF")
+        playlist_box.delete(0, tk.END)
+        for file in playlist:
+            playlist_box.insert(tk.END, os.path.basename(file))
+
+    def toggle_repeat():
+        repeat_enabled[0] = not repeat_enabled[0]
+        repeat_btn.config(text="Repeat: ON" if repeat_enabled[0] else "Repeat: OFF")
+
+    def save_playlist():
+        file = filedialog.asksaveasfilename(defaultextension=".txt", filetypes=[("Text", "*.txt")])
+        if file:
+            with open(file, "w") as f:
+                for song in original_playlist:
+                    f.write(f"{song}\n")
+
+    def load_playlist():
+        file = filedialog.askopenfilename(filetypes=[("Text", "*.txt")])
+        if file:
+            playlist.clear()
+            original_playlist.clear()
+            playlist_box.delete(0, tk.END)
+            with open(file, "r") as f:
+                for line in f:
+                    song = line.strip()
+                    playlist.append(song)
+                    original_playlist.append(song)
+                    playlist_box.insert(tk.END, os.path.basename(song))
+
+    # ---- UI ----
     root = tk.Tk()
     root.title("Dubz Music Player")
-    root.geometry("600x600")
+    root.geometry("600x650")
+    root.configure(bg="#202020")  # dark background
 
-    # Playlist box
+    def apply_theme(widget):
+        for child in widget.winfo_children():
+            try:
+                child.configure(bg="#202020", fg="white")
+            except:
+                pass
+            if isinstance(child, tk.Widget):
+                apply_theme(child)
+
+        # Search bar
+    search_var = tk.StringVar()
+
+    def filter_playlist(*args):
+        query = search_var.get().lower()
+        playlist_box.delete(0, tk.END)
+        for file in playlist:
+            if query in os.path.basename(file).lower():
+                playlist_box.insert(tk.END, os.path.basename(file))
+
+    search_var.trace_add("write", filter_playlist)
+    tk.Entry(root, textvariable=search_var, width=50).pack(pady=5)
+
+
     playlist_box = tk.Listbox(root, width=60, height=5)
     playlist_box.pack(pady=10)
 
-    # Lyrics display
+    album_art_label = tk.Label(root)
+    album_art_label.pack(pady=5)
+
     lyrics_label = tk.Label(root, text="Lyrics will appear here.", wraplength=550, justify="left")
     lyrics_label.pack(padx=10, pady=10)
 
-    # Time and progress bar
     time_frame = tk.Frame(root)
     time_frame.pack(pady=5)
 
@@ -104,12 +197,10 @@ def launch_ui():
     total_time_label = tk.Label(time_frame, text="00:00")
     total_time_label.pack(side="left", padx=10)
 
-    # Volume slider
     volume_slider = tk.Scale(root, from_=0, to=100, orient="horizontal", label="Volume", command=change_volume)
     volume_slider.set(50)
     volume_slider.pack(pady=10)
 
-    # Controls
     controls = tk.Frame(root)
     controls.pack(pady=5)
 
@@ -120,5 +211,16 @@ def launch_ui():
     tk.Button(controls, text="Pause", command=pause_song).pack(side="left", padx=5)
     tk.Button(controls, text="Resume", command=resume_song).pack(side="left", padx=5)
     tk.Button(controls, text="Stop", command=stop_song).pack(side="left", padx=5)
+
+    tk.Button(root, text="Save Playlist", command=save_playlist).pack(pady=2)
+    tk.Button(root, text="Load Playlist", command=load_playlist).pack(pady=2)
+
+    shuffle_btn = tk.Button(root, text="Shuffle: OFF", command=toggle_shuffle)
+    shuffle_btn.pack(pady=5)
+
+    repeat_btn = tk.Button(root, text="Repeat: OFF", command=toggle_repeat)
+    repeat_btn.pack(pady=5)
+
+    apply_theme(root)
 
     root.mainloop()

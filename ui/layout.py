@@ -8,6 +8,8 @@ import time
 import random
 from PIL import Image, ImageTk
 import os
+from rapidfuzz import fuzz
+from tkinterdnd2 import DND_FILES, TkinterDnD
 
 def format_time(seconds):
     minutes = int(seconds // 60)
@@ -48,6 +50,19 @@ def launch_ui():
         except:
             total_length = 0
         total_time_label.config(text=format_time(total_length))
+
+        # Update "Now Playing"
+        try:
+            audio = eyed3.load(file_path)
+            song_title = audio.tag.title if audio.tag and audio.tag.title else "Unknown Title"
+            artist = audio.tag.artist if audio.tag and audio.tag.artist else "Unknown Artist"
+        except:
+            song_title, artist = "Unknown Title", "Unknown Artist"
+
+        song_title_label.config(text=f"Title: {song_title}")
+        artist_label.config(text=f"Artist: {artist}")
+        duration_label.config(text=f"Duration: {format_time(total_length)}")
+
         update_progress()
         show_lyrics(file_path)
         show_album_art(file_path)
@@ -147,29 +162,108 @@ def launch_ui():
                     original_playlist.append(song)
                     playlist_box.insert(tk.END, os.path.basename(song))
 
+    def handle_key_press(event):
+        key = event.keysym.lower()
+
+        if key == "space":
+            if pygame.mixer.music.get_busy():
+                pause_song()
+            else:
+                resume_song()
+
+        elif key == "right":
+            next_song()
+
+        elif key == "left":
+            prev_song()
+
+        elif key == "o" and (event.state & 0x4):  # Ctrl+O
+            add_songs()
+
+        elif key == "s" and (event.state & 0x4):  # Ctrl+S
+            save_playlist()
+
+    def handle_drop(event):
+        files = root.tk.splitlist(event.data)
+        for file in files:
+            if file.lower().endswith(".mp3"):
+                playlist.append(file)
+                original_playlist.append(file)
+                playlist_box.insert(tk.END, os.path.basename(file))
+
+    # ---- Themes ----
+    themes = {
+        "dark": {
+            "bg": "#202020",
+            "fg": "white",
+            "entry_bg": "#303030",
+            "highlight": "#505050",
+            "lyrics_fg": "lightgreen",
+        },
+        "light": {
+            "bg": "#f0f0f0",
+            "fg": "#000000",
+            "entry_bg": "#ffffff",
+            "highlight": "#cccccc",
+            "lyrics_fg": "#006600",
+        }
+    }
+    current_theme = ["dark"]
+
+    def apply_theme(widget):
+        theme = themes[current_theme[0]]
+        for child in widget.winfo_children():
+            try:
+                if isinstance(child, tk.Label):
+                    fg = theme["lyrics_fg"] if "lyrics" in str(child).lower() else theme["fg"]
+                    child.configure(bg=theme["bg"], fg=fg)
+                elif isinstance(child, tk.Entry):
+                    child.configure(bg=theme["entry_bg"], fg=theme["fg"])
+                elif isinstance(child, tk.Listbox):
+                    child.configure(bg=theme["entry_bg"], fg=theme["fg"], selectbackground=theme["highlight"])
+                elif isinstance(child, tk.Button):
+                    child.configure(bg=theme["bg"], fg=theme["fg"])
+                elif isinstance(child, tk.Scale):
+                    child.configure(bg=theme["bg"], fg=theme["fg"])
+                else:
+                    child.configure(bg=theme["bg"])
+            except:
+                pass
+            apply_theme(child)
+
+    def toggle_theme():
+        current_theme[0] = "light" if current_theme[0] == "dark" else "dark"
+        apply_theme(root)
+
     # ---- UI ----
-    root = tk.Tk()
+    root = TkinterDnD.Tk()
     root.title("Dubz Music Player")
     root.geometry("600x650")
     root.configure(bg="#202020")  # dark background
 
-    def apply_theme(widget):
-        for child in widget.winfo_children():
-            try:
-                child.configure(bg="#202020", fg="white")
-            except:
-                pass
-            if isinstance(child, tk.Widget):
-                apply_theme(child)
+    now_playing_frame = tk.Frame(root, bg="#2a2a2a", pady=5)
+    now_playing_frame.pack(fill="x")
 
-        # Search bar
+    song_title_label = tk.Label(now_playing_frame, text="Title: -", bg="#2a2a2a", fg="white", font=("Helvetica", 10, "bold"))
+    song_title_label.pack(side="left", padx=10)
+
+    artist_label = tk.Label(now_playing_frame, text="Artist: -", bg="#2a2a2a", fg="white", font=("Helvetica", 10))
+    artist_label.pack(side="left", padx=10)
+
+    duration_label = tk.Label(now_playing_frame, text="Duration: 00:00", bg="#2a2a2a", fg="white", font=("Helvetica", 10))
+    duration_label.pack(side="left", padx=10)
+
+    # Search bar
     search_var = tk.StringVar()
 
     def filter_playlist(*args):
         query = search_var.get().lower()
         playlist_box.delete(0, tk.END)
+
         for file in playlist:
-            if query in os.path.basename(file).lower():
+            filename = os.path.basename(file).lower()
+            match_score = fuzz.partial_ratio(query, filename.lower())
+            if match_score >= 70:
                 playlist_box.insert(tk.END, os.path.basename(file))
 
     search_var.trace_add("write", filter_playlist)
@@ -185,10 +279,10 @@ def launch_ui():
 
     tk.Button(search_frame, text="×", width=2, command=clear_search).pack(side="left")
 
-
-
     playlist_box = tk.Listbox(root, width=60, height=5)
     playlist_box.pack(pady=10)
+    playlist_box.drop_target_register(DND_FILES)
+    playlist_box.dnd_bind("<<Drop>>", handle_drop)
 
     album_art_label = tk.Label(root)
     album_art_label.pack(pady=5)
@@ -216,22 +310,22 @@ def launch_ui():
     controls.pack(pady=5)
 
     tk.Button(controls, text="Add Songs", command=add_songs).pack(side="left", padx=5)
-    tk.Button(controls, text="Play Selected", command=play_selected).pack(side="left", padx=5)
-    tk.Button(controls, text="Previous", command=prev_song).pack(side="left", padx=5)
+    tk.Button(controls, text="Play", command=play_selected).pack(side="left", padx=5)
     tk.Button(controls, text="Next", command=next_song).pack(side="left", padx=5)
-    tk.Button(controls, text="Pause", command=pause_song).pack(side="left", padx=5)
-    tk.Button(controls, text="Resume", command=resume_song).pack(side="left", padx=5)
-    tk.Button(controls, text="Stop", command=stop_song).pack(side="left", padx=5)
+    tk.Button(controls, text="Prev", command=prev_song).pack(side="left", padx=5)
 
-    tk.Button(root, text="Save Playlist", command=save_playlist).pack(pady=2)
-    tk.Button(root, text="Load Playlist", command=load_playlist).pack(pady=2)
+    shuffle_btn = tk.Button(controls, text="Shuffle: OFF", command=toggle_shuffle)
+    shuffle_btn.pack(side="left", padx=5)
 
-    shuffle_btn = tk.Button(root, text="Shuffle: OFF", command=toggle_shuffle)
-    shuffle_btn.pack(pady=5)
+    repeat_btn = tk.Button(controls, text="Repeat: OFF", command=toggle_repeat)
+    repeat_btn.pack(side="left", padx=5)
 
-    repeat_btn = tk.Button(root, text="Repeat: OFF", command=toggle_repeat)
-    repeat_btn.pack(pady=5)
+    tk.Button(controls, text="Save Playlist", command=save_playlist).pack(side="left", padx=5)
+    tk.Button(controls, text="Load Playlist", command=load_playlist).pack(side="left", padx=5)
+
+    tk.Button(root, text="Toggle Theme", command=toggle_theme).pack(pady=10)
+
+    root.bind("<KeyPress>", handle_key_press)
 
     apply_theme(root)
-
     root.mainloop()
